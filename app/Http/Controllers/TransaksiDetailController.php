@@ -3,9 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\TransaksiDetail;
-use Illuminate\Http\Request;
-
 use App\Models\Transaksi;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class TransaksiDetailController extends Controller
@@ -14,20 +13,20 @@ class TransaksiDetailController extends Controller
     {
         $transaksidetail = TransaksiDetail::with('transaksi')->orderBy('id','DESC')->get();
 
-        return view('transaksidetail.index', );
+        return view('transaksidetail.index', compact('transaksidetail'));
     }
 
     public function detail(Request $request)
     {
         $transaksi = Transaksi::with('transaksidetail')->findOrFail($request->id_transaksi);
 
-        return view('transaksidetail.detail', );
+        return view('transaksidetail.detail', compact('transaksi'));
     }
 
     public function edit($id)
     {
         $transaksidetail = TransaksiDetail::findOrFail($id);
-        return view('transaksidetail.edit', );
+        return view('transaksidetail.edit', compact('transaksidetail'));
     }
 
     public function update(Request $request, $id)
@@ -38,32 +37,51 @@ class TransaksiDetailController extends Controller
             'jumlah' => 'required|numeric',
         ]);
 
-        // Gunakan transaction
+        $transaksidetail = TransaksiDetail::findOrFail($id);
+        $transaksi = Transaksi::findOrFail($transaksidetail->id_transaksi);
+
+        DB::beginTransaction();
+
         try {
             $transaksidetail->nama_produk = $request->input('nama_produk');
             $transaksidetail->harga_satuan = $request->input('harga_satuan');
             $transaksidetail->jumlah = $request->input('jumlah');
-            $transaksidetail->subtotal = harga_satuan * jumlah
+            $transaksidetail->subtotal = $request->input('harga_satuan') * $request->input('jumlah');
+            $transaksidetail->save();
+            $total_harga = $transaksi->transaksidetail->sum('subtotal');
+            $transaksi->total_harga = $total_harga;
 
-            $transaksi->total_harga = sum subtotal
-            $transaksi->kembalian = bayar - total_harga; // hapus rumus
+            $transaksi->kembalian = $transaksi->bayar - $transaksi->total_harga;
+            $transaksi->save();
+            DB::commit();
 
-            return redirect('transaksidetail/'.$transaksidetail->id_transaksi)->with('pesan', 'Berhasil mengubah data');
+            return redirect()->route('transaksidetail.detail', $transaksi->id)->with('pesan', 'Berhasil mengubah data');
         } catch (\Exception $e) {
             DB::rollback();
-            return redirect()->back()->withErrors(['Transaction' => 'Gagal menambahkan data'])->withInput();
+            return redirect()->back()->withErrors(['Transaction' => 'Gagal mengubah data'])->withInput();
         }
     }
 
-    public function destroy()
+    public function destroy($id)
     {
         $transaksidetail = TransaksiDetail::findOrFail($id);
+        $transaksi = Transaksi::findOrFail($transaksidetail->id_transaksi);
+        DB::beginTransaction();
 
-        $transaksi = Transaksi::with('transaksidetail')->findOrFail($transaksidetail->id_transaksi);
-        $transaksi->total_harga = sum subtotal;
-        $transaksi->kembalian = bayar - total_harga;
-        $transaksi->save();
+        try {
+            $transaksidetail->delete();
+            $total_harga = $transaksi->transaksidetail->sum('subtotal');
+            $transaksi->total_harga = $total_harga;
+            $transaksi->kembalian = $transaksi->bayar - $transaksi->total_harga;
 
-        return redirect('transaksidetail/'.$transaksidetail->id_transaksi)->with('pesan', 'Berhasil menghapus data');
+            $transaksi->save();
+
+            DB::commit();
+
+            return redirect()->route('transaksidetail.detail', $transaksi->id)->with('pesan', 'Berhasil menghapus data');
+        } catch (\Exception $e) {
+            DB::rollback();
+            return redirect()->back()->withErrors(['Transaction' => 'Gagal menghapus data'])->withInput();
+        }
     }
 }
